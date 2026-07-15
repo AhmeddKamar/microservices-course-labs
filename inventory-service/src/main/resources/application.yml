@@ -3,6 +3,19 @@ spring:
     name: inventory-service
   config:
     import: "optional:configserver:http://localhost:8888"
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: ${spring.application.name}
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+    properties:
+      spring.json.trusted.packages: "com.microservices.pro.*"
+      spring.json.type.mapping: "orderPlaced:com.microservices.pro.inventory.events.OrderPlacedEvent,inventoryReserved:com.microservices.pro.inventory.events.InventoryReservedEvent,inventoryReservationFailed:com.microservices.pro.inventory.events.InventoryReservationFailedEvent,paymentCompleted:com.microservices.pro.inventory.events.PaymentCompletedEvent,paymentFailed:com.microservices.pro.inventory.events.PaymentFailedEvent,inventoryReleased:com.microservices.pro.inventory.events.InventoryReleasedEvent,orderConfirmed:com.microservices.pro.inventory.events.OrderConfirmedEvent,orderCancelled:com.microservices.pro.inventory.events.OrderCancelledEvent"
 
 server:
   port: 8084

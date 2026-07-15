@@ -23,4 +23,12 @@ public class PaymentService {
         }
         return new PaymentResponse("APPROVED", UUID.randomUUID().toString(), request.amount());
     }
+
+    // Saga step: process payment for an order (local transaction)
+    public String processPayment(String orderId) {
+        if (random.nextInt(100) < failureRate) {
+            throw new PaymentException("Payment declined for order " + orderId);
+        }
+        return UUID.randomUUID().toString();
+    }
 }

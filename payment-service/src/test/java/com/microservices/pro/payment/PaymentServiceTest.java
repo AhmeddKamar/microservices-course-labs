@@ -35,4 +35,20 @@ class PaymentServiceTest {
 
         assertNotEquals(first.transactionId(), second.transactionId());
     }
+
+    @Test
+    void processPayment_byOrderId_returnsTransactionId_whenFailureRateIsZero() {
+        PaymentService paymentService = new PaymentService(0);
+
+        String transactionId = paymentService.processPayment("order-1");
+
+        assertNotNull(transactionId);
+    }
+
+    @Test
+    void processPayment_byOrderId_throwsPaymentException_whenFailureRateIsHundred() {
+        PaymentService paymentService = new PaymentService(100);
+
+        assertThrows(PaymentException.class, () -> paymentService.processPayment("order-2"));
+    }
 }

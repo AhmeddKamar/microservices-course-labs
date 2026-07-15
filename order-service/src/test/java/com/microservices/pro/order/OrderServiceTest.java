@@ -1,168 +1,91 @@
 package com.microservices.pro.order;
 
-import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import com.microservices.pro.order.events.InventoryReleasedEvent;
+import com.microservices.pro.order.events.OrderPlacedEvent;
+import com.microservices.pro.order.events.PaymentCompletedEvent;
+import com.microservices.pro.order.events.PaymentFailedEvent;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.kafka.core.KafkaTemplate;
 
 import java.math.BigDecimal;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
-@SpringBootTest(properties = {
-        "eureka.client.enabled=false",
-        "spring.cloud.config.enabled=false",
-        "spring.cloud.discovery.enabled=false",
-        // Smaller/faster thresholds so the tests don't need dozens of calls to prove the behaviour
-        "resilience4j.circuitbreaker.instances.paymentService.sliding-window-size=4",
-        "resilience4j.circuitbreaker.instances.paymentService.minimum-number-of-calls=4",
-        "resilience4j.circuitbreaker.instances.paymentService.failure-rate-threshold=50",
-        "resilience4j.circuitbreaker.instances.paymentService.wait-duration-in-open-state=1s",
-        "resilience4j.retry.instances.paymentService.max-attempts=2",
-        "resilience4j.retry.instances.paymentService.wait-duration=50ms",
-        "resilience4j.retry.instances.paymentService.enable-exponential-backoff=false",
-        "resilience4j.bulkhead.instances.paymentService.max-concurrent-calls=1",
-        "resilience4j.bulkhead.instances.paymentService.max-wait-duration=0",
-        "resilience4j.timelimiter.instances.paymentService.timeout-duration=2s",
-        "resilience4j.timelimiter.instances.paymentService.cancel-running-future=true"
-})
+@ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
 
-    @Autowired
+    @Mock
+    private KafkaTemplate<String, Object> kafkaTemplate;
+
+    private final OrderRepository orderRepository = new OrderRepository();
     private OrderService orderService;
-
-    @Autowired
-    private CircuitBreakerRegistry circuitBreakerRegistry;
-
-    @MockBean
-    private PaymentClient paymentClient;
-
-    @MockBean
-    private InventoryClient inventoryClient;
+    private OrderSagaEventHandler sagaEventHandler;
 
     @BeforeEach
-    void resetCircuitBreaker() {
-        circuitBreakerRegistry.circuitBreaker("paymentService").reset();
-        // Default: stock is available unless a test overrides this stub
-        when(inventoryClient.checkStock(anyString(), anyInt()))
-                .thenReturn(new StockCheckResponse("PROD-001", 1, true, 99));
+    void setUp() {
+        orderService = new OrderService(kafkaTemplate, orderRepository);
+        sagaEventHandler = new OrderSagaEventHandler(orderRepository);
+    }
+
+    private static ConsumerRecord<String, Object> record(String topic, String key, Object value) {
+        return new ConsumerRecord<>(topic, 0, 0L, key, value);
     }
 
     @Test
-    void createOrder_returnsConfirmed_whenPaymentSucceeds() throws Exception {
-        when(paymentClient.processPayment(any()))
-                .thenReturn(new PaymentResponse("APPROVED", "txn-1", BigDecimal.TEN));
+    void createOrder_savesPendingOrderAndPublishesOrderPlaced() {
+        OrderResponse response = orderService.createOrder(
+                new OrderRequest("PROD-001", 3, BigDecimal.TEN, "cust-1"));
 
-        OrderResponse response = orderService.createOrderAsync(new OrderRequest("PROD-001", 1, BigDecimal.TEN))
-                .get(2, TimeUnit.SECONDS);
-
-        assertEquals("CONFIRMED", response.status());
+        assertEquals(OrderStatus.PENDING, response.status());
+        verify(kafkaTemplate).send(eq("order-events"), eq(response.orderId()), any(OrderPlacedEvent.class));
     }
 
     @Test
-    void createOrder_returnsRejected_whenInventoryReportsInsufficientStock() throws Exception {
-        when(inventoryClient.checkStock("PROD-003", 1))
-                .thenThrow(new InsufficientStockException("Product out of stock"));
-
-        OrderResponse response = orderService.createOrderAsync(new OrderRequest("PROD-003", 1, BigDecimal.TEN))
-                .get(2, TimeUnit.SECONDS);
-
-        assertEquals("REJECTED", response.status());
-        assertEquals("Product out of stock", response.message());
-        verify(paymentClient, never()).processPayment(any());
+    void getStatus_throws_whenOrderUnknown() {
+        assertThrows(OrderNotFoundException.class, () -> orderService.getStatus("missing"));
     }
 
     @Test
-    void createOrder_checksInventoryBeforeCallingPayment() throws Exception {
-        when(paymentClient.processPayment(any()))
-                .thenReturn(new PaymentResponse("APPROVED", "txn-4", BigDecimal.TEN));
+    void handlePaymentEvent_confirmsOrder_onPaymentCompleted() {
+        OrderResponse response = orderService.createOrder(
+                new OrderRequest("PROD-001", 1, BigDecimal.TEN, "cust-1"));
 
-        orderService.createOrderAsync(new OrderRequest("PROD-001", 2, BigDecimal.TEN))
-                .get(2, TimeUnit.SECONDS);
+        sagaEventHandler.handlePaymentEvent(
+                record("payment-events", response.orderId(), new PaymentCompletedEvent(response.orderId(), "txn-1")));
 
-        verify(inventoryClient, times(1)).checkStock("PROD-001", 2);
-        verify(paymentClient, times(1)).processPayment(any());
+        assertEquals(OrderStatus.CONFIRMED, orderService.getStatus(response.orderId()).status());
     }
 
     @Test
-    void createOrder_returnsPending_whenPaymentFailsConsistently() throws Exception {
-        when(paymentClient.processPayment(any()))
-                .thenThrow(new RuntimeException("Payment Service unavailable"));
+    void handlePaymentEvent_marksPaymentFailed_onPaymentFailed() {
+        OrderResponse response = orderService.createOrder(
+                new OrderRequest("PROD-001", 1, BigDecimal.TEN, "cust-1"));
 
-        OrderResponse response = orderService.createOrderAsync(new OrderRequest("PROD-001", 1, BigDecimal.TEN))
-                .get(2, TimeUnit.SECONDS);
+        sagaEventHandler.handlePaymentEvent(
+                record("payment-events", response.orderId(), new PaymentFailedEvent(response.orderId(), "Payment declined")));
 
-        assertEquals("PENDING", response.status());
-        verify(paymentClient, times(2)).processPayment(any()); // max-attempts=2
+        assertEquals(OrderStatus.PAYMENT_FAILED, orderService.getStatus(response.orderId()).status());
     }
 
     @Test
-    void circuitBreaker_opensAfterFailureThreshold() throws Exception {
-        when(paymentClient.processPayment(any()))
-                .thenThrow(new RuntimeException("Payment Service unavailable"));
+    void handleInventoryReleased_cancelsOrder_asCompensation() {
+        OrderResponse response = orderService.createOrder(
+                new OrderRequest("PROD-001", 1, BigDecimal.TEN, "cust-1"));
+        sagaEventHandler.handlePaymentEvent(
+                record("payment-events", response.orderId(), new PaymentFailedEvent(response.orderId(), "Payment declined")));
 
-        // CircuitBreaker wraps Retry, so it records ONE outcome per createOrderAsync() call
-        // (after Retry exhausts its attempts) - 4 failed calls fills the sliding window.
-        for (int i = 0; i < 4; i++) {
-            orderService.createOrderAsync(new OrderRequest("PROD-001", 1, BigDecimal.TEN)).get(2, TimeUnit.SECONDS);
-        }
+        sagaEventHandler.handleInventoryReleased(
+                record("inventory-events", response.orderId(), new InventoryReleasedEvent(response.orderId())));
 
-        assertEquals(CircuitBreaker.State.OPEN,
-                circuitBreakerRegistry.circuitBreaker("paymentService").getState());
-    }
-
-    @Test
-    void bulkhead_returnsQueued_whenConcurrentLimitExceeded() throws Exception {
-        CountDownLatch releaseLatch = new CountDownLatch(1);
-        when(paymentClient.processPayment(any())).thenAnswer(invocation -> {
-            releaseLatch.await(3, TimeUnit.SECONDS);
-            return new PaymentResponse("APPROVED", "txn-2", BigDecimal.TEN);
-        });
-
-        // First call occupies the only bulkhead slot (max-concurrent-calls=1)
-        CompletableFuture<OrderResponse> first = orderService.createOrderAsync(new OrderRequest("PROD-001", 1, BigDecimal.TEN));
-        Thread.sleep(200); // let the first call acquire the bulkhead permit
-
-        OrderResponse second = orderService.createOrderAsync(new OrderRequest("PROD-001", 1, BigDecimal.TEN))
-                .get(2, TimeUnit.SECONDS);
-        assertEquals("QUEUED", second.status());
-
-        releaseLatch.countDown();
-        OrderResponse firstResult = first.get(2, TimeUnit.SECONDS);
-        assertEquals("CONFIRMED", firstResult.status());
-    }
-
-    @Test
-    void timeLimiter_returnsPending_whenPaymentExceedsTimeout() throws Exception {
-        // A background thread (not the TimeLimiter's cancelled future) still holds the Bulkhead
-        // permit until this mocked call actually returns, so release it via a latch instead of a
-        // fixed sleep - otherwise the permit would leak into the next test.
-        CountDownLatch releaseLatch = new CountDownLatch(1);
-        when(paymentClient.processPayment(any())).thenAnswer(invocation -> {
-            releaseLatch.await(5, TimeUnit.SECONDS); // slower than the 2s TimeLimiter
-            return new PaymentResponse("APPROVED", "txn-3", BigDecimal.TEN);
-        });
-
-        OrderResponse response = orderService.createOrderAsync(new OrderRequest("PROD-001", 1, BigDecimal.TEN))
-                .get(4, TimeUnit.SECONDS);
-
-        assertEquals("PENDING", response.status());
-        assertEquals("Payment timed out", response.message());
-
-        releaseLatch.countDown();
-        Thread.sleep(100); // let the background call finish and release the Bulkhead permit
+        assertEquals(OrderStatus.CANCELLED, orderService.getStatus(response.orderId()).status());
     }
 }

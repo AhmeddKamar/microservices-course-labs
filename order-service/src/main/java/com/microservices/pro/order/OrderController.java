@@ -1,12 +1,12 @@
 package com.microservices.pro.order;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/orders")
@@ -19,11 +19,12 @@ public class OrderController {
     }
 
     @PostMapping
-    public CompletableFuture<ResponseEntity<OrderResponse>> createOrder(@RequestBody OrderRequest request) {
-        return orderService.createOrderAsync(request)
-                .thenApply(response -> ResponseEntity.ok(response));
+    public ResponseEntity<OrderResponse> createOrder(@RequestBody OrderRequest request) {
+        return ResponseEntity.ok(orderService.createOrder(request));
     }
 
-    // Spring MVC handles CompletableFuture transparently
-    // Client sees a normal synchronous HTTP response — async is internal only
+    @GetMapping("/{orderId}/status")
+    public ResponseEntity<OrderStatusResponse> getOrderStatus(@PathVariable String orderId) {
+        return ResponseEntity.ok(orderService.getStatus(orderId));
+    }
 }
