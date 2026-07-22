@@ -33,6 +33,14 @@ public class ProductController {
         return ResponseEntity.status(HttpStatus.CREATED).body(productService.save(product));
     }
 
+    @PutMapping("/{id}")
+    public ResponseEntity<Product> update(@PathVariable Long id, @RequestBody Product product) {
+        if (productService.findById(id).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(productService.update(id, product));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         productService.deleteById(id);

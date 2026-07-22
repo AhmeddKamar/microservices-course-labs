@@ -56,4 +56,14 @@ class ProductServiceTest {
 
         assertEquals(2, productService.findAll().size());
     }
+
+    @Test
+    void update_replacesExistingProduct() {
+        Product saved = productService.save(new Product(null, "Laptop", "Gaming laptop", BigDecimal.valueOf(999.99), "Electronics"));
+
+        Product updated = productService.update(saved.id(), new Product(null, "Laptop Pro", "Updated description", BigDecimal.valueOf(1099.99), "Electronics"));
+
+        assertEquals(saved.id(), updated.id());
+        assertEquals("Laptop Pro", productService.findById(saved.id()).orElseThrow().name());
+    }
 }
