@@ -7,12 +7,8 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class ProductService {
@@ -20,27 +16,27 @@ public class ProductService {
     private static final Logger log = LoggerFactory.getLogger(ProductService.class);
     private static final String CACHE_NAME = "products";
 
-    private final Map<Long, Product> store = new ConcurrentHashMap<>();
-    private final AtomicLong idGenerator = new AtomicLong(1);
+    private final ProductRepository productRepository;
+
+    public ProductService(ProductRepository productRepository) {
+        this.productRepository = productRepository;
+    }
 
     @Cacheable(value = CACHE_NAME, key = "'all'")
     public List<Product> findAll() {
-        log.info("[CACHE MISS] Loading all products from store");
-        return new ArrayList<>(store.values());
+        log.info("[CACHE MISS] Loading all products from database");
+        return productRepository.findAll();
     }
 
     @Cacheable(value = CACHE_NAME, key = "#id")
     public Optional<Product> findById(Long id) {
-        log.info("[CACHE MISS] Loading product {} from store", id);
-        return Optional.ofNullable(store.get(id));
+        log.info("[CACHE MISS] Loading product {} from database", id);
+        return productRepository.findById(id);
     }
 
     @CacheEvict(value = CACHE_NAME, key = "'all'")
     public Product save(Product product) {
-        long id = idGenerator.getAndIncrement();
-        Product saved = new Product(id, product.name(), product.description(), product.price(), product.category());
-        store.put(id, saved);
-        return saved;
+        return productRepository.save(product);
     }
 
     // Evicts both the single-product entry and the all-products list in one pass
@@ -52,9 +48,8 @@ public class ProductService {
     })
     public Product update(Long id, Product product) {
         log.info("[CACHE EVICT] Invalidating cache for product {}", id);
-        Product updated = new Product(id, product.name(), product.description(), product.price(), product.category());
-        store.put(id, updated);
-        return updated;
+        product.setId(id);
+        return productRepository.save(product);
     }
 
     @Caching(evict = {
@@ -63,6 +58,15 @@ public class ProductService {
     })
     public void deleteById(Long id) {
         log.info("[CACHE EVICT] Invalidating cache for product {}", id);
-        store.remove(id);
+        productRepository.deleteById(id);
+    }
+
+    public int calcDiscount(String tier) {
+        return switch (tier) {
+            case "SILVER" -> 5;
+            case "GOLD" -> 10;
+            case "PLATINUM" -> 15;
+            default -> 0;
+        };
     }
 }
