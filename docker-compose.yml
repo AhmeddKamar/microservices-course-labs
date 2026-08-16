@@ -182,6 +182,30 @@ services:
       retries: 5
     networks: [platform-net]
 
+  notification-service:
+    build: ./notification-service
+    image: notification-service:local
+    container_name: notification-service
+    ports:
+      - "8085:8085"
+    depends_on:
+      config-server:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      - SPRING_CONFIG_IMPORT=optional:configserver:http://config-server:8888
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://eureka-server:8761/eureka/
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:19092
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [platform-net]
+
   api-gateway:
     build: ./api-gateway
     image: api-gateway:local
