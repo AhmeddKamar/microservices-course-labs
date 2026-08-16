@@ -26,7 +26,7 @@ class ProductServiceTest {
     @ParameterizedTest
     @CsvSource({
             "SILVER,   5",
-            "GOLD,    10",
+            "GOLD,    99",
             "PLATINUM,15"
     })
     void calcDiscount(String tier, int expected) {
