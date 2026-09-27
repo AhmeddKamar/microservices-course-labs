@@ -22,7 +22,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       # Spring Boot only auto-exposes the liveness/readiness groups below when
@@ -36,3 +36,9 @@ management:
       enabled: true
     readinessstate:
       enabled: true
+  tracing:
+    sampling:
+      probability: 1.0 # DEV ONLY - trace 100% of requests, see Session 17 sampling guidance
+  zipkin:
+    tracing:
+      endpoint: http://localhost:9411/api/v2/spans # docker-compose overrides to http://zipkin:9411/...

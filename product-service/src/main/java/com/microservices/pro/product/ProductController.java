@@ -1,5 +1,6 @@
 package com.microservices.pro.product;
 
+import io.micrometer.core.annotation.Timed;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +30,7 @@ public class ProductController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @Timed(value = "product.create.duration", description = "Time to create a product")
     @PostMapping
     public ResponseEntity<Product> create(@Valid @RequestBody Product product) {
         return ResponseEntity.status(HttpStatus.CREATED).body(productService.save(product));
