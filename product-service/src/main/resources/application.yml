@@ -23,3 +23,16 @@ management:
     web:
       exposure:
         include: health,info
+  endpoint:
+    health:
+      # Spring Boot only auto-exposes the liveness/readiness groups below when
+      # it detects a real Kubernetes env (KUBERNETES_SERVICE_HOST). Set this
+      # explicitly so the probes also work outside a cluster (docker-compose,
+      # local run) and don't silently 404 if that detection ever misfires.
+      probes:
+        enabled: true
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true

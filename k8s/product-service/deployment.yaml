@@ -24,7 +24,18 @@ spec:
                 name: product-config
           env:
             - name: SPRING_DATASOURCE_PASSWORD
-              value: product # Session 15 moves this to a Secret
+              valueFrom:
+                secretKeyRef: { name: product-secrets, key: DB_PASSWORD }
           resources:
             requests: { cpu: 100m, memory: 256Mi }
             limits: { cpu: 500m, memory: 512Mi }
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8081 }
+            initialDelaySeconds: 60 # Spring Boot + JPA needs time to start
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8081 }
+            initialDelaySeconds: 30 # readiness checked earlier - pod might be alive before ready
+            periodSeconds: 5
+            failureThreshold: 3

@@ -22,10 +22,21 @@ spec:
                 name: product-config
           env:
             - name: SPRING_DATASOURCE_PASSWORD
-              value: product
+              valueFrom:
+                secretKeyRef: { name: product-secrets, key: DB_PASSWORD }
           resources:
             requests: { cpu: 100m, memory: 256Mi }
             limits: { cpu: 500m, memory: 512Mi }
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8081 }
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8081 }
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            failureThreshold: 3
 # Traffic split is by pod count, via the shared Service selector app: product-service.
 # 2 stable + 2 canary = 50/50, not the slides' 80/20 - their concept slide assumes
 # 8 stable pods while their deployment.yaml says replicas: 2. For a true 80/20:
