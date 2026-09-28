@@ -255,6 +255,16 @@ services:
       retries: 5
     networks: [platform-net]
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    container_name: keycloak
+    command: start-dev
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin   # DEV ONLY — never a real password in prod
+    ports: ["8090:8080"]     # 8090 host — avoids clashing with existing services
+    networks: [platform-net]
+
 networks:
   platform-net:
     driver: bridge
